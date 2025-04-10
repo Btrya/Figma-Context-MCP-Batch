@@ -23,8 +23,8 @@ export class FigmaMcpServer {
     this.figmaService = new FigmaService(figmaApiKey);
     this.server = new McpServer(
       {
-        name: "Figma MCP Server",
-        version: "0.1.15",
+        name: "Figma MCP Server Batch",
+        version: "0.0.1",
       },
       {
         capabilities: {
