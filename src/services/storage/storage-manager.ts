@@ -5,6 +5,7 @@
 
 import { StorageAdapter } from './adapters/storage-adapter.js';
 import { FileSystemAdapter } from './adapters/file-system-adapter.js';
+import { RedisAdapter } from './adapters/redis-adapter.js';
 import { Chunk, ChunkSummary } from './models/chunk.js';
 import { ChunkFilter } from './models/chunk-filter.js';
 import { 
@@ -31,6 +32,11 @@ export class StorageManager {
     // 注册默认的文件系统适配器
     if (this.config.fileSystem) {
       this.registerAdapter('fileSystem', new FileSystemAdapter(this.config.fileSystem));
+    }
+    
+    // 注册Redis适配器
+    if (this.config.redis) {
+      this.registerAdapter('redis', new RedisAdapter(this.config.redis));
     }
   }
   
@@ -141,6 +147,8 @@ export class StorageManager {
   public dispose(): void {
     for (const adapter of this.adapters.values()) {
       if (adapter instanceof FileSystemAdapter) {
+        adapter.dispose();
+      } else if (adapter instanceof RedisAdapter) {
         adapter.dispose();
       }
       // 当添加其他适配器类型时，在这里添加相应的处理

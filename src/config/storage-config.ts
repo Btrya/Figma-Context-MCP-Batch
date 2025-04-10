@@ -43,6 +43,72 @@ export interface FileSystemAdapterConfig extends BaseStorageAdapterConfig {
 }
 
 /**
+ * Redis存储适配器配置
+ */
+export interface RedisAdapterConfig extends BaseStorageAdapterConfig {
+  /**
+   * Redis连接选项
+   */
+  connection: {
+    host: string;
+    port: number;
+    password?: string;
+    db?: number;
+    username?: string;
+  };
+  
+  /**
+   * 是否使用集群模式
+   * 默认为false
+   */
+  cluster?: boolean;
+  
+  /**
+   * 集群节点配置（如果使用集群模式）
+   */
+  nodes?: Array<{
+    host: string;
+    port: number;
+  }>;
+  
+  /**
+   * 默认过期时间（秒）
+   * 默认为24小时
+   */
+  defaultTTL: number;
+  
+  /**
+   * 键前缀（用于隔离不同应用的数据）
+   */
+  keyPrefix: string;
+  
+  /**
+   * 连接超时时间（毫秒）
+   */
+  connectTimeout?: number;
+  
+  /**
+   * 命令执行超时时间（毫秒）
+   */
+  commandTimeout?: number;
+  
+  /**
+   * 重试策略
+   */
+  retryStrategy?: {
+    /**
+     * 最大重试次数
+     */
+    maxRetryCount: number;
+    
+    /**
+     * 重试间隔（毫秒）
+     */
+    retryInterval: number;
+  };
+}
+
+/**
  * 存储管理器配置
  */
 export interface StorageManagerConfig {
@@ -57,9 +123,13 @@ export interface StorageManagerConfig {
   fileSystem?: FileSystemAdapterConfig;
   
   /**
+   * Redis适配器配置
+   */
+  redis?: RedisAdapterConfig;
+  
+  /**
    * 其他适配器配置（将在后续故事中添加）
    */
-  // redis?: RedisAdapterConfig;
   // mongo?: MongoAdapterConfig;
 }
 
@@ -72,6 +142,28 @@ export const DEFAULT_FILE_SYSTEM_CONFIG: FileSystemAdapterConfig = {
   lockTimeout: 30000, // 30秒
   defaultTTL: 24 * 60 * 60 * 1000, // 24小时
   hashAlgorithm: 'md5',
+  cleanupOnStart: true,
+  cleanupInterval: 60 * 60 * 1000 // 1小时
+};
+
+/**
+ * 默认的Redis适配器配置
+ */
+export const DEFAULT_REDIS_CONFIG: RedisAdapterConfig = {
+  connection: {
+    host: 'localhost',
+    port: 6379,
+    db: 0
+  },
+  cluster: false,
+  defaultTTL: 24 * 60 * 60, // 24小时（秒）
+  keyPrefix: 'figma:chunk:',
+  connectTimeout: 10000, // 10秒
+  commandTimeout: 5000, // 5秒
+  retryStrategy: {
+    maxRetryCount: 3,
+    retryInterval: 1000 // 1秒
+  },
   cleanupOnStart: true,
   cleanupInterval: 60 * 60 * 1000 // 1小时
 };
@@ -91,14 +183,36 @@ export const DEFAULT_STORAGE_MANAGER_CONFIG: StorageManagerConfig = {
  */
 export function mergeWithDefaultConfig(userConfig?: Partial<StorageManagerConfig>): StorageManagerConfig {
   if (!userConfig) {
-    return DEFAULT_STORAGE_MANAGER_CONFIG;
+    return { ...DEFAULT_STORAGE_MANAGER_CONFIG };
   }
   
-  return {
-    ...DEFAULT_STORAGE_MANAGER_CONFIG,
-    ...userConfig,
-    fileSystem: userConfig.fileSystem
-      ? { ...DEFAULT_FILE_SYSTEM_CONFIG, ...userConfig.fileSystem }
-      : DEFAULT_FILE_SYSTEM_CONFIG
+  const result: StorageManagerConfig = {
+    defaultAdapter: userConfig.defaultAdapter || DEFAULT_STORAGE_MANAGER_CONFIG.defaultAdapter,
   };
+  
+  // 合并文件系统配置
+  if (userConfig.fileSystem || DEFAULT_STORAGE_MANAGER_CONFIG.fileSystem) {
+    result.fileSystem = {
+      ...DEFAULT_FILE_SYSTEM_CONFIG,
+      ...userConfig.fileSystem
+    };
+  }
+  
+  // 合并Redis配置
+  if (userConfig.redis) {
+    result.redis = {
+      ...DEFAULT_REDIS_CONFIG,
+      ...userConfig.redis,
+      connection: {
+        ...DEFAULT_REDIS_CONFIG.connection,
+        ...userConfig.redis.connection
+      },
+      retryStrategy: userConfig.redis.retryStrategy ? {
+        ...DEFAULT_REDIS_CONFIG.retryStrategy,
+        ...userConfig.redis.retryStrategy
+      } : DEFAULT_REDIS_CONFIG.retryStrategy
+    };
+  }
+  
+  return result;
 } 

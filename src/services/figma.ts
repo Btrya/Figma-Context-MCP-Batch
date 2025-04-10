@@ -130,7 +130,7 @@ export class FigmaService {
         }
         return false;
       })
-      .filter((url) => !!url);
+      .filter((url): url is Promise<string> => url !== false);
 
     return Promise.all(downloads);
   }
