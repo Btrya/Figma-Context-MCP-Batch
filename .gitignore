@@ -35,4 +35,11 @@ test-output
 
 # OS
 .DS_Store
-Thumbs.db
+Thumbs.db-e 
+# Private individual user cursor rules
+.ai/*
+.cursorignore
+.cursorindexingignore
+xnotes/*
+.cursor/*
+mock/*

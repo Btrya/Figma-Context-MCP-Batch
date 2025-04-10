@@ -1,4 +1,4 @@
-import { SimplifiedLayout, buildSimplifiedLayout } from "~/transformers/layout.js";
+import { SimplifiedLayout, buildSimplifiedLayout } from "~/transformers/layout";
 import type {
   GetFileNodesResponse,
   Node as FigmaDocumentNode,
