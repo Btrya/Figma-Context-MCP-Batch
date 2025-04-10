@@ -109,6 +109,114 @@ export interface RedisAdapterConfig extends BaseStorageAdapterConfig {
 }
 
 /**
+ * MongoDB存储适配器配置
+ */
+export interface MongoAdapterConfig extends BaseStorageAdapterConfig {
+  /**
+   * 连接URI
+   */
+  uri: string;
+  
+  /**
+   * 数据库名称
+   */
+  database: string;
+  
+  /**
+   * 集合名称
+   */
+  collection: string;
+  
+  /**
+   * 连接选项
+   */
+  options?: {
+    /**
+     * 最大连接池大小
+     */
+    maxPoolSize?: number;
+    
+    /**
+     * 服务器选择超时时间（毫秒）
+     */
+    serverSelectionTimeoutMS?: number;
+    
+    /**
+     * 连接超时时间（毫秒）
+     */
+    connectTimeoutMS?: number;
+    
+    /**
+     * 套接字超时时间（毫秒）
+     */
+    socketTimeoutMS?: number;
+    
+    /**
+     * TLS/SSL CA文件路径
+     */
+    tlsCAFile?: string;
+  };
+  
+  /**
+   * 索引配置
+   */
+  indexes?: Array<{
+    /**
+     * 索引字段
+     * 键为字段名，值为排序方向（1为升序，-1为降序）
+     */
+    fields: Record<string, 1 | -1>;
+    
+    /**
+     * 索引选项
+     */
+    options?: {
+      /**
+       * 是否唯一索引
+       */
+      unique?: boolean;
+      
+      /**
+       * 是否稀疏索引
+       */
+      sparse?: boolean;
+      
+      /**
+       * 是否创建后台索引
+       */
+      background?: boolean;
+      
+      /**
+       * 过期时间（秒）
+       * 用于TTL索引
+       */
+      expireAfterSeconds?: number;
+    };
+  }>;
+  
+  /**
+   * 默认过期时间（秒）
+   * 默认为0表示不过期
+   */
+  defaultTTL: number;
+  
+  /**
+   * 重试策略
+   */
+  retryStrategy?: {
+    /**
+     * 最大重试次数
+     */
+    maxRetryCount: number;
+    
+    /**
+     * 重试间隔（毫秒）
+     */
+    retryInterval: number;
+  };
+}
+
+/**
  * 存储管理器配置
  */
 export interface StorageManagerConfig {
@@ -128,9 +236,9 @@ export interface StorageManagerConfig {
   redis?: RedisAdapterConfig;
   
   /**
-   * 其他适配器配置（将在后续故事中添加）
+   * MongoDB适配器配置
    */
-  // mongo?: MongoAdapterConfig;
+  mongo?: MongoAdapterConfig;
 }
 
 /**
@@ -160,6 +268,42 @@ export const DEFAULT_REDIS_CONFIG: RedisAdapterConfig = {
   keyPrefix: 'figma:chunk:',
   connectTimeout: 10000, // 10秒
   commandTimeout: 5000, // 5秒
+  retryStrategy: {
+    maxRetryCount: 3,
+    retryInterval: 1000 // 1秒
+  },
+  cleanupOnStart: true,
+  cleanupInterval: 60 * 60 * 1000 // 1小时
+};
+
+/**
+ * 默认的MongoDB适配器配置
+ */
+export const DEFAULT_MONGO_CONFIG: MongoAdapterConfig = {
+  uri: 'mongodb://localhost:27017',
+  database: 'figma_cache',
+  collection: 'chunks',
+  options: {
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+    connectTimeoutMS: 10000,
+    socketTimeoutMS: 30000
+  },
+  indexes: [
+    {
+      fields: { fileKey: 1 },
+      options: { background: true }
+    },
+    {
+      fields: { type: 1 },
+      options: { background: true }
+    },
+    {
+      fields: { lastAccessed: 1 },
+      options: { background: true, expireAfterSeconds: 86400 } // 默认1天后过期
+    }
+  ],
+  defaultTTL: 24 * 60 * 60, // 24小时（秒）
   retryStrategy: {
     maxRetryCount: 3,
     retryInterval: 1000 // 1秒
@@ -211,6 +355,22 @@ export function mergeWithDefaultConfig(userConfig?: Partial<StorageManagerConfig
         ...DEFAULT_REDIS_CONFIG.retryStrategy,
         ...userConfig.redis.retryStrategy
       } : DEFAULT_REDIS_CONFIG.retryStrategy
+    };
+  }
+  
+  // 合并MongoDB配置
+  if (userConfig.mongo) {
+    result.mongo = {
+      ...DEFAULT_MONGO_CONFIG,
+      ...userConfig.mongo,
+      options: {
+        ...DEFAULT_MONGO_CONFIG.options,
+        ...userConfig.mongo.options
+      },
+      retryStrategy: userConfig.mongo.retryStrategy ? {
+        ...DEFAULT_MONGO_CONFIG.retryStrategy,
+        ...userConfig.mongo.retryStrategy
+      } : DEFAULT_MONGO_CONFIG.retryStrategy
     };
   }
   
