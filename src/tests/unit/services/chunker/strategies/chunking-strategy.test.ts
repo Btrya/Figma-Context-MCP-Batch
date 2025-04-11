@@ -46,6 +46,7 @@ describe('ChunkingStrategy Interface', () => {
     context = {
       fileKey: 'test-file',
       maxSize: 1024,
+      chunkType: ChunkType.NODE,
       path: [],
       depth: 0,
       idMap: new Map()

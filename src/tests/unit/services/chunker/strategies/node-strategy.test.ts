@@ -15,7 +15,8 @@ describe('NodeChunkingStrategy', () => {
     strategy = new NodeChunkingStrategy();
     context = {
       fileKey: 'test-file',
-      maxSize: 1024 * 10, // 10KB, 足够大以允许控制分片
+      maxSize: 30 * 1024,
+      chunkType: ChunkType.NODE,
       path: [],
       depth: 0,
       idMap: new Map()

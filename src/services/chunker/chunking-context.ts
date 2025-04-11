@@ -3,6 +3,8 @@
  * 定义分片过程中的上下文信息
  */
 
+import { ChunkType } from '../storage/models/chunk.js';
+
 /**
  * 分片上下文接口
  * 包含分片过程中需要的各种参数和状态
@@ -17,6 +19,11 @@ export interface ChunkingContext {
    * 最大分片大小（字节）
    */
   maxSize: number;
+  
+  /**
+   * 分片类型
+   */
+  chunkType: ChunkType;
   
   /**
    * 父节点ID（如果有）
@@ -44,12 +51,14 @@ export interface ChunkingContext {
  * 创建初始分片上下文
  * @param fileKey Figma文件键
  * @param maxSize 最大分片大小（字节）
+ * @param chunkType 分片类型
  * @returns 初始分片上下文
  */
-export function createInitialContext(fileKey: string, maxSize: number): ChunkingContext {
+export function createInitialContext(fileKey: string, maxSize: number, chunkType: ChunkType): ChunkingContext {
   return {
     fileKey,
     maxSize,
+    chunkType,
     path: [],
     depth: 0,
     idMap: new Map<string, string>()
@@ -72,6 +81,7 @@ export function createChildContext(
   return {
     fileKey: parentContext.fileKey,
     maxSize: parentContext.maxSize,
+    chunkType: parentContext.chunkType,
     parentId: parentId || parentContext.parentId,
     path: [...parentContext.path, path],
     depth: parentContext.depth + 1,

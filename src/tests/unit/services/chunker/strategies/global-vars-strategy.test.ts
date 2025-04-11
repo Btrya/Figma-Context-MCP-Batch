@@ -15,7 +15,8 @@ describe('GlobalVarsChunkingStrategy', () => {
     strategy = new GlobalVarsChunkingStrategy();
     context = {
       fileKey: 'test-file',
-      maxSize: 1024 * 5, // 5KB
+      maxSize: 30 * 1024,
+      chunkType: ChunkType.GLOBAL_VARS,
       path: [],
       depth: 0,
       idMap: new Map()

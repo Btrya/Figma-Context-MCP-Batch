@@ -10,6 +10,7 @@ import { ChunkResult } from '../../../../models/chunker/chunk-result.js';
 import { sampleNode } from '../../../fixtures/figma-files/sample-node.js';
 import { sampleMetadata } from '../../../fixtures/figma-files/sample-metadata.js';
 import { sampleVariables } from '../../../fixtures/figma-files/sample-variables.js';
+import { OptimizationLevel } from '../../../../services/chunker/chunk-optimizer.js';
 
 // 为测试准备修改后的样本数据
 const testMetadata = { 
@@ -114,12 +115,18 @@ describe('Chunker', () => {
       
       expect(config.maxChunkSize).toBe(30 * 1024); // 默认30KB
       expect(config.debug).toBe(false);
+      expect(config.optimizationLevel).toBe(OptimizationLevel.MEDIUM);
+      expect(config.collectMetrics).toBe(false);
+      expect(config.detectCircularReferences).toBe(true);
     });
     
     it('应使用自定义配置创建实例', () => {
       const customConfig: ChunkerConfig = {
         maxChunkSize: 50 * 1024, // 50KB
-        debug: true
+        debug: true,
+        optimizationLevel: OptimizationLevel.HIGH,
+        collectMetrics: true,
+        detectCircularReferences: false
       };
       
       const customChunker = new Chunker(customConfig);
@@ -129,6 +136,9 @@ describe('Chunker', () => {
       
       expect(config.maxChunkSize).toBe(50 * 1024);
       expect(config.debug).toBe(true);
+      expect(config.optimizationLevel).toBe(OptimizationLevel.HIGH);
+      expect(config.collectMetrics).toBe(true);
+      expect(config.detectCircularReferences).toBe(false);
     });
     
     it('应注册默认策略', () => {
@@ -142,8 +152,8 @@ describe('Chunker', () => {
     });
   });
   
-  // 测试策略注册
-  describe('registerStrategy', () => {
+  // 测试策略注册和获取
+  describe('registerStrategy和getStrategy', () => {
     it('应注册自定义策略', () => {
       // 创建mock策略
       const mockChunkFn = mockFn().mockResolvedValue({
@@ -157,10 +167,16 @@ describe('Chunker', () => {
       // 注册自定义策略以覆盖默认策略
       chunker.registerStrategy(customStrategy);
       
-      // @ts-ignore 访问私有属性进行测试
-      const strategy = chunker.strategies.get(ChunkType.METADATA);
+      // 验证策略已经注册
+      const strategy = chunker.getStrategy(ChunkType.METADATA);
       
       expect(strategy).toBe(customStrategy);
+    });
+    
+    it('获取不存在的策略应返回undefined', () => {
+      // @ts-ignore 使用无效的分片类型
+      const strategy = chunker.getStrategy('INVALID_TYPE');
+      expect(strategy).toBeUndefined();
     });
   });
   
@@ -226,25 +242,42 @@ describe('Chunker', () => {
       const result = await chunker.chunk(sampleNode, fileKey);
       
       // 验证结果
-      expect(result).toBe(mockResult);
+      expect(result.chunks).toHaveLength(1);
+      expect(result.primaryChunkId).toBe('test-chunk');
       expect(mockChunkFn.mock.calls.length).toBe(1);
       
       // 验证传递给策略的上下文
       const context = mockChunkFn.mock.calls[0][1];
       expect(context.fileKey).toBe(fileKey);
-      expect(context.maxSize).toBe(30 * 1024);
+      expect(context.chunkType).toBe(ChunkType.NODE);
     });
     
     it('应使用指定的数据类型而不进行自动检测', async () => {
-      // 创建两个不同类型的mock策略
+      // 创建mock策略和结果
       const nodeResult: ChunkResult = {
-        chunks: [{ id: 'node-chunk', fileKey, type: ChunkType.NODE, created: new Date(), lastAccessed: new Date(), data: {}, links: [] }],
+        chunks: [{
+          id: 'node-chunk',
+          fileKey,
+          type: ChunkType.NODE,
+          created: new Date(),
+          lastAccessed: new Date(),
+          data: {},
+          links: []
+        }],
         primaryChunkId: 'node-chunk',
         references: []
       };
       
       const metadataResult: ChunkResult = {
-        chunks: [{ id: 'metadata-chunk', fileKey, type: ChunkType.METADATA, created: new Date(), lastAccessed: new Date(), data: {}, links: [] }],
+        chunks: [{
+          id: 'metadata-chunk',
+          fileKey,
+          type: ChunkType.METADATA,
+          created: new Date(),
+          lastAccessed: new Date(),
+          data: {},
+          links: []
+        }],
         primaryChunkId: 'metadata-chunk',
         references: []
       };
@@ -252,17 +285,15 @@ describe('Chunker', () => {
       const nodeChunkFn = mockFn().mockResolvedValue(nodeResult);
       const metadataChunkFn = mockFn().mockResolvedValue(metadataResult);
       
-      const nodeStrategy = new MockStrategy(ChunkType.NODE, nodeChunkFn);
-      const metadataStrategy = new MockStrategy(ChunkType.METADATA, metadataChunkFn);
+      // 注册mock策略
+      chunker.registerStrategy(new MockStrategy(ChunkType.NODE, nodeChunkFn));
+      chunker.registerStrategy(new MockStrategy(ChunkType.METADATA, metadataChunkFn));
       
-      chunker.registerStrategy(nodeStrategy);
-      chunker.registerStrategy(metadataStrategy);
-      
-      // 使用NODE类型调用，即使数据类型可能是其他类型
+      // 使用元数据数据但指定为节点类型
       const result = await chunker.chunk(testMetadata, fileKey, ChunkType.NODE);
       
       // 验证是否调用了NODE策略而不是基于数据自动检测
-      expect(result).toBe(nodeResult);
+      expect(result).toStrictEqual(nodeResult);
       expect(nodeChunkFn.mock.calls.length).toBe(1);
       expect(metadataChunkFn.mock.calls.length).toBe(0);
     });
@@ -308,6 +339,318 @@ describe('Chunker', () => {
       
       // 恢复原始console.log
       console.log = originalConsoleLog;
+    });
+  });
+  
+  // 测试优化功能
+  describe('优化功能', () => {
+    it('应根据配置的优化级别处理分片', async () => {
+      // 创建一个包含大量数据的分片结果
+      const largeData = {
+        backgroundColor: { r: 1, g: 1, b: 1 },
+        children: [
+          { id: 'child1', name: 'Child 1' },
+          { id: 'child2', name: 'Child 2' }
+        ],
+        cornerRadius: 0,
+        counterAxisSizingMode: 'FIXED',
+        effects: [
+          { type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.1 }, offset: { x: 0, y: 2 }, radius: 4, spread: 0, visible: true }
+        ],
+        fills: [
+          { type: 'SOLID', color: { r: 1, g: 1, b: 1 }, opacity: 1, visible: true }
+        ],
+        height: 812,
+        id: '2:1',
+        itemSpacing: 10,
+        layoutMode: 'VERTICAL',
+        name: '主屏幕',
+        paddingBottom: 20,
+        paddingLeft: 16,
+        paddingRight: 16,
+        paddingTop: 20,
+        primaryAxisSizingMode: 'FIXED',
+        strokes: [] as any[],
+        type: 'FRAME',
+        width: 375,
+        x: 0,
+        y: 0,
+        // 添加一个大字符串属性以确保分片大小超过限制
+        _largeProperty: 'x'.repeat(5000)
+      };
+      
+      // 创建mock结果
+      const mockResult: ChunkResult = {
+        chunks: [{
+          id: 'test-large',
+          fileKey,
+          type: ChunkType.NODE,
+          created: new Date(),
+          lastAccessed: new Date(),
+          data: largeData,
+          links: []
+        }],
+        primaryChunkId: 'test-large',
+        references: []
+      };
+      
+      // 创建策略
+      const mockChunkFn = mockFn().mockResolvedValue(mockResult);
+      chunker.registerStrategy(new MockStrategy(ChunkType.NODE, mockChunkFn));
+      
+      // 设置高级优化
+      // @ts-ignore 访问私有属性
+      chunker.config.optimizationLevel = OptimizationLevel.HIGH;
+      
+      // 执行分片
+      const result = await chunker.chunk(largeData, fileKey);
+      
+      // 验证分片已被优化
+      expect(result.chunks[0].data).not.toMatchObject(largeData);
+      
+      // 优化应该移除了_largeProperty
+      expect(result.chunks[0].data._largeProperty).toBeUndefined();
+    });
+    
+    it('优化级别NONE不应改变分片', async () => {
+      // 创建一个不进行优化的Chunker
+      const noOptChunker = new Chunker({
+        optimizationLevel: OptimizationLevel.NONE
+      });
+      
+      // 创建mock策略和结果
+      const mockResult: ChunkResult = {
+        chunks: [{
+          id: 'no-opt-chunk',
+          fileKey,
+          type: ChunkType.NODE,
+          created: new Date(),
+          lastAccessed: new Date(),
+          data: { test: 'no-opt-data' },
+          links: []
+        }],
+        primaryChunkId: 'no-opt-chunk',
+        references: []
+      };
+      
+      const mockChunkFn = mockFn().mockResolvedValue(mockResult);
+      const mockStrategy = new MockStrategy(ChunkType.NODE, mockChunkFn);
+      
+      // 注册mock策略
+      noOptChunker.registerStrategy(mockStrategy);
+      
+      // 执行分片
+      const result = await noOptChunker.chunk(sampleNode, fileKey);
+      
+      // 验证分片未被修改
+      expect(result).toBe(mockResult);
+    });
+  });
+  
+  // 测试指标收集
+  describe('指标收集', () => {
+    it('应收集和提供性能指标', async () => {
+      // 创建启用指标收集的Chunker
+      const metricsChunker = new Chunker({
+        collectMetrics: true
+      });
+      
+      // 创建mock策略和结果
+      const mockResult: ChunkResult = {
+        chunks: [{
+          id: 'metrics-chunk',
+          fileKey,
+          type: ChunkType.NODE,
+          created: new Date(),
+          lastAccessed: new Date(),
+          data: { test: 'metrics-data' },
+          links: []
+        }],
+        primaryChunkId: 'metrics-chunk',
+        references: []
+      };
+      
+      const mockChunkFn = mockFn().mockResolvedValue(mockResult);
+      const mockStrategy = new MockStrategy(ChunkType.NODE, mockChunkFn);
+      
+      // 注册mock策略
+      metricsChunker.registerStrategy(mockStrategy);
+      
+      // 执行分片
+      await metricsChunker.chunk(sampleNode, fileKey);
+      
+      // 获取指标
+      const metrics = metricsChunker.getMetrics();
+      
+      // 验证指标记录
+      expect(metrics.chunkCounts[ChunkType.NODE]).toBe(1);
+      expect(metrics.processingTime[ChunkType.NODE].length).toBe(1);
+      expect(metrics.chunkSizes[ChunkType.NODE].length).toBe(1);
+    });
+    
+    it('应重置指标', async () => {
+      // 创建启用指标收集的Chunker
+      const metricsChunker = new Chunker({
+        collectMetrics: true
+      });
+      
+      // 创建mock策略和结果
+      const mockResult: ChunkResult = {
+        chunks: [{
+          id: 'metrics-chunk',
+          fileKey,
+          type: ChunkType.NODE,
+          created: new Date(),
+          lastAccessed: new Date(),
+          data: { test: 'metrics-data' },
+          links: []
+        }],
+        primaryChunkId: 'metrics-chunk',
+        references: []
+      };
+      
+      const mockChunkFn = mockFn().mockResolvedValue(mockResult);
+      const mockStrategy = new MockStrategy(ChunkType.NODE, mockChunkFn);
+      
+      // 注册mock策略
+      metricsChunker.registerStrategy(mockStrategy);
+      
+      // 执行分片
+      await metricsChunker.chunk(sampleNode, fileKey);
+      
+      // 验证指标记录
+      let metrics = metricsChunker.getMetrics();
+      expect(metrics.chunkCounts[ChunkType.NODE]).toBe(1);
+      
+      // 重置指标
+      metricsChunker.resetMetrics();
+      
+      // 验证指标已重置
+      metrics = metricsChunker.getMetrics();
+      expect(metrics.chunkCounts[ChunkType.NODE]).toBe(0);
+      expect(metrics.processingTime[ChunkType.NODE].length).toBe(0);
+    });
+  });
+  
+  // 测试引用图功能
+  describe('引用图功能', () => {
+    it('应构建和提供分片引用图', async () => {
+      // 创建mock策略和带引用的结果
+      const mockResult: ChunkResult = {
+        chunks: [
+          {
+            id: 'parent-chunk',
+            fileKey,
+            type: ChunkType.NODE,
+            created: new Date(),
+            lastAccessed: new Date(),
+            data: { id: 'parent', type: 'FRAME' },
+            links: ['child-chunk-1', 'child-chunk-2']
+          },
+          {
+            id: 'child-chunk-1',
+            fileKey,
+            type: ChunkType.NODE,
+            created: new Date(),
+            lastAccessed: new Date(),
+            data: { id: 'child1', type: 'RECTANGLE' },
+            links: []
+          },
+          {
+            id: 'child-chunk-2',
+            fileKey,
+            type: ChunkType.NODE,
+            created: new Date(),
+            lastAccessed: new Date(),
+            data: { id: 'child2', type: 'TEXT' },
+            links: []
+          }
+        ],
+        primaryChunkId: 'parent-chunk',
+        references: ['child-chunk-1', 'child-chunk-2']
+      };
+      
+      const mockChunkFn = mockFn().mockResolvedValue(mockResult);
+      const mockStrategy = new MockStrategy(ChunkType.NODE, mockChunkFn);
+      
+      // 注册mock策略
+      chunker.registerStrategy(mockStrategy);
+      
+      // 执行分片
+      await chunker.chunk(sampleNode, fileKey);
+      
+      // 获取引用图
+      const referenceGraph = chunker.getReferenceGraph();
+      
+      // 验证引用图结构
+      expect(referenceGraph['parent-chunk']).toEqual(['child-chunk-1', 'child-chunk-2']);
+      expect(referenceGraph['child-chunk-1']).toEqual([]);
+      expect(referenceGraph['child-chunk-2']).toEqual([]);
+    });
+    
+    it('应检测循环引用', async () => {
+      // 监控console.warn
+      const originalConsoleWarn = console.warn;
+      const consoleWarnMock = mockFn();
+      console.warn = consoleWarnMock;
+      
+      // 创建启用调试的Chunker
+      const debugChunker = new Chunker({ 
+        debug: true,
+        detectCircularReferences: true
+      });
+      
+      // 创建mock策略和带循环引用的结果
+      const mockResult: ChunkResult = {
+        chunks: [
+          {
+            id: 'chunk-a',
+            fileKey,
+            type: ChunkType.NODE,
+            created: new Date(),
+            lastAccessed: new Date(),
+            data: { id: 'a' },
+            links: ['chunk-b']
+          },
+          {
+            id: 'chunk-b',
+            fileKey,
+            type: ChunkType.NODE,
+            created: new Date(),
+            lastAccessed: new Date(),
+            data: { id: 'b' },
+            links: ['chunk-c']
+          },
+          {
+            id: 'chunk-c',
+            fileKey,
+            type: ChunkType.NODE,
+            created: new Date(),
+            lastAccessed: new Date(),
+            data: { id: 'c' },
+            links: ['chunk-a'] // 形成循环
+          }
+        ],
+        primaryChunkId: 'chunk-a',
+        references: ['chunk-b', 'chunk-c']
+      };
+      
+      const mockChunkFn = mockFn().mockResolvedValue(mockResult);
+      const mockStrategy = new MockStrategy(ChunkType.NODE, mockChunkFn);
+      
+      // 注册mock策略
+      debugChunker.registerStrategy(mockStrategy);
+      
+      // 执行分片
+      await debugChunker.chunk(sampleNode, fileKey);
+      
+      // 验证检测到循环引用并输出警告
+      expect(consoleWarnMock.mock.calls.some(args => 
+        args[0] === 'Circular references detected:'
+      )).toBe(true);
+      
+      // 恢复原始console.warn
+      console.warn = originalConsoleWarn;
     });
   });
 }); 

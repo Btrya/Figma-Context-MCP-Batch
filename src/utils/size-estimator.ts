@@ -1,91 +1,79 @@
 /**
  * 大小估算工具
- * 提供用于估计JavaScript对象序列化后大小的工具函数
+ * 用于估算JavaScript对象的大小
  */
 
 /**
- * 估计对象序列化后的字节大小
- * 使用JSON.stringify并计算结果字符串的字节长度
- * @param obj 要估计大小的对象
- * @returns 估计的字节大小
+ * 估算数据大小
+ * 使用JSON序列化+缓冲区计算字节大小
+ * @param data 要估算大小的数据
+ * @returns 估算的字节大小
  */
-export function estimateSize(obj: any): number {
+export function estimateSize(data: any): number {
   try {
-    // 对于简单类型，直接转换
-    const json = JSON.stringify(obj);
+    const json = JSON.stringify(data);
     return Buffer.byteLength(json, 'utf8');
   } catch (error) {
-    // 对于无法直接序列化的复杂对象，使用递归估算
-    return estimateComplexObjectSize(obj);
+    console.warn('无法估算对象大小，返回最大值:', error);
+    // 返回一个大数作为"无法估算"的标记
+    return Number.MAX_SAFE_INTEGER;
   }
 }
 
 /**
- * 递归估算复杂对象的大小
- * 处理可能包含循环引用的复杂对象
- * @param obj 要估计大小的复杂对象
- * @param seen 已处理过的对象集合，用于处理循环引用
- * @returns 估计的字节大小
+ * 检查数据是否超过指定大小
+ * @param data 要检查的数据
+ * @param maxSize 最大字节数
+ * @returns 如果超过大小返回true，否则返回false
  */
-function estimateComplexObjectSize(obj: any, seen = new WeakSet()): number {
-  // 处理null和undefined
-  if (obj === null || obj === undefined) {
-    return 4; // "null" 或 "undefined" 的大致长度
-  }
-  
-  // 处理基本类型
-  const type = typeof obj;
-  if (type === 'boolean') return 5; // "true" 或 "false"
-  if (type === 'number') return String(obj).length;
-  if (type === 'string') return obj.length * 2; // 近似估计UTF-8字符平均2字节
-  
-  // 处理循环引用
-  if (typeof obj === 'object') {
-    if (seen.has(obj)) {
-      return 8; // 对于已处理过的对象，返回固定大小避免循环
-    }
-    seen.add(obj);
-  }
-  
-  // 处理数组
-  if (Array.isArray(obj)) {
-    let size = 2; // [] 的大小
-    for (const item of obj) {
-      size += estimateComplexObjectSize(item, seen) + 1; // +1 for comma
-    }
-    return size;
-  }
-  
-  // 处理普通对象
-  if (type === 'object') {
-    let size = 2; // {} 的大小
-    for (const key in obj) {
-      if (Object.prototype.hasOwnProperty.call(obj, key)) {
-        size += key.length + 3; // 键名 + 引号 + 冒号
-        size += estimateComplexObjectSize(obj[key], seen) + 1; // +1 for comma
-      }
-    }
-    return size;
-  }
-  
-  // 处理函数和其他类型（如Symbol）
-  if (type === 'function') {
-    // 函数通常在JSON中被忽略，但这里我们返回一个近似值
-    return obj.toString().length;
-  }
-  
-  // 其他类型（Symbol等）
-  return 8; // 默认大小
+export function isOverSize(data: any, maxSize: number): boolean {
+  const size = estimateSize(data);
+  return size > maxSize;
 }
 
 /**
- * 检查对象是否超过指定大小
- * @param obj 要检查的对象
- * @param maxSize 最大允许大小（字节）
- * @returns 如果超过最大大小返回true，否则返回false
+ * 获取格式化的大小字符串
+ * @param bytes 字节数
+ * @returns 格式化后的大小字符串（如：1.23 MB）
  */
-export function isOverSize(obj: any, maxSize: number): boolean {
-  return estimateSize(obj) > maxSize;
+export function formatSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  
+  return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * 分析数据结构比例
+ * 计算对象中各主要部分占用的空间比例
+ * @param data 要分析的数据
+ * @returns 各主要部分的大小比例
+ */
+export function analyzeDataStructure(data: any): Record<string, number> {
+  const result: Record<string, number> = {};
+  const totalSize = estimateSize(data);
+  
+  if (typeof data !== 'object' || data === null) {
+    result['primitive'] = totalSize;
+    return result;
+  }
+  
+  // 计算对象中各主要部分的大小
+  for (const key of Object.keys(data)) {
+    const size = estimateSize(data[key]);
+    result[key] = size;
+  }
+  
+  // 添加一个"其他"类别，表示对象结构的开销
+  const sumOfParts = Object.values(result).reduce((sum, size) => sum + size, 0);
+  const overhead = Math.max(0, totalSize - sumOfParts);
+  if (overhead > 0) {
+    result['__overhead'] = overhead;
+  }
+  
+  return result;
 }
 
 /**

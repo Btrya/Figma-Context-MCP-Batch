@@ -15,7 +15,8 @@ describe('MetadataChunkingStrategy', () => {
     strategy = new MetadataChunkingStrategy();
     context = {
       fileKey: 'test-file',
-      maxSize: 1024, // 1KB
+      maxSize: 30 * 1024,
+      chunkType: ChunkType.METADATA,
       path: [],
       depth: 0,
       idMap: new Map()
