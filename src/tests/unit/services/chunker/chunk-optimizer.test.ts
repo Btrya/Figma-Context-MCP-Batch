@@ -76,7 +76,8 @@ describe('ChunkOptimizer', () => {
       
       const optimized = optimizer.optimize(chunk, OptimizationLevel.LOW);
       
-      // 验证不必要的属性被移除
+      // 验证分片被优化，不必要的属性被移除
+      expect(optimized).not.toStrictEqual(chunk); // 应该是内容不同的对象
       expect(optimized.data._internal).toBeUndefined();
       expect(optimized.data.thumbnailUrl).toBeUndefined();
       
@@ -97,7 +98,7 @@ describe('ChunkOptimizer', () => {
       const optimized = optimizer.optimize(chunk, OptimizationLevel.MEDIUM);
       
       // 验证返回了不同的对象
-      expect(optimized).not.toBe(chunk);
+      expect(optimized).not.toStrictEqual(chunk);
       
       // 验证数据被压缩
       const compressedJSON = JSON.stringify(optimized.data);

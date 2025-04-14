@@ -406,7 +406,7 @@ describe('Chunker', () => {
       const result = await chunker.chunk(largeData, fileKey);
       
       // 验证分片已被优化
-      expect(result.chunks[0].data).not.toMatchObject(largeData);
+      expect(result.chunks[0].data).not.toEqual(largeData);
       
       // 优化应该移除了_largeProperty
       expect(result.chunks[0].data._largeProperty).toBeUndefined();
