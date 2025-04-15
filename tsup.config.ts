@@ -13,4 +13,10 @@ export default defineConfig({
     js: ".js",
   }),
   onSuccess: isDev ? "node dist/cli.js" : undefined,
+  esbuildOptions: (options) => {
+    options.alias = {
+      "~": "./src",
+    };
+  },
+  dts: false,
 });

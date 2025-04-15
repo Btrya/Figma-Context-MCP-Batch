@@ -43,3 +43,4 @@ Thumbs.db-e
 xnotes/*
 .cursor/*
 mock/*
+.cache/*

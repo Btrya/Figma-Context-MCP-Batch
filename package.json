@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup --dts",
+    "build": "tsup && tsc --emitDeclarationOnly --outDir dist",
     "type-check": "tsc --noEmit",
     "test": "jest",
     "start": "node dist/cli.js",
